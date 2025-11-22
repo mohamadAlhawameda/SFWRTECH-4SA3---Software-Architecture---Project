@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const API_BASE = "http://localhost:8000";
 
@@ -40,19 +40,21 @@ export default function Home() {
 
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
+  // editing
+  const [editingId, setEditingId] = useState<number | null>(null);
+
   async function loadExpenses() {
     try {
       const res = await fetch(`${API_BASE}/expenses`);
       if (!res.ok) throw new Error("Failed to load expenses");
       const data = await res.json();
-      // Ensure numeric types
       const normalized: Expense[] = data.map((e: any) => ({
         ...e,
         amount: Number(e.amount),
         amount_base: Number(e.amount_base),
       }));
       setExpenses(normalized);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setError("Could not fetch expenses from the server.");
     }
@@ -71,7 +73,7 @@ export default function Home() {
         total: Number(s.total),
       }));
       setSummary(normalized);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setError("Could not fetch summary from the server.");
     } finally {
@@ -84,7 +86,7 @@ export default function Home() {
     loadSummary("category");
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleCreateOrUpdate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -95,35 +97,95 @@ export default function Home() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/expenses?convert_to_base=true`, {
-        method: "POST",
+      const payload = {
+        amount: Number(amount),
+        currency,
+        category,
+        description: description || null,
+        spent_at: spentAt,
+      };
+
+      const isEditing = editingId !== null;
+      const url = isEditing
+        ? `${API_BASE}/expenses/${editingId}?convert_to_base=true`
+        : `${API_BASE}/expenses?convert_to_base=true`;
+      const method = isEditing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: Number(amount),
-          currency,
-          category,
-          description: description || null,
-          spent_at: spentAt,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        console.error("Create failed:", body ?? res.statusText);
-        throw new Error("Failed to create expense");
+        console.error("Save failed:", body ?? res.statusText);
+        throw new Error("Failed to save expense");
       }
 
       await loadExpenses();
       await loadSummary(groupBy);
 
+      // reset form
       setAmount("");
       setDescription("");
-    } catch (err: any) {
+      setSpentAt("");
+      setCategory("Food");
+      setCurrency("CAD");
+      setEditingId(null);
+    } catch (err) {
       console.error(err);
       setError("Could not save expense. Check backend/API.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleDelete(id: number) {
+    const ok = window.confirm("Delete this expense?");
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/expenses/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        console.error("Delete failed:", res.statusText);
+        throw new Error("Failed to delete expense");
+      }
+      // If we were editing this one, cancel edit mode
+      if (editingId === id) {
+        setEditingId(null);
+        setAmount("");
+        setDescription("");
+        setSpentAt("");
+        setCategory("Food");
+        setCurrency("CAD");
+      }
+      await loadExpenses();
+      await loadSummary(groupBy);
+    } catch (err) {
+      console.error(err);
+      setError("Could not delete expense.");
+    }
+  }
+
+  function handleStartEdit(exp: Expense) {
+    setEditingId(exp.id);
+    setAmount(exp.amount.toString());
+    setCurrency(exp.currency);
+    setCategory(exp.category);
+    setDescription(exp.description ?? "");
+    setSpentAt(exp.spent_at); // already yyyy-mm-dd from backend
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setAmount("");
+    setCurrency("CAD");
+    setCategory("Food");
+    setDescription("");
+    setSpentAt("");
   }
 
   // Unique categories for filter dropdown
@@ -159,6 +221,12 @@ export default function Home() {
     );
     return sorted[0].spent_at;
   }, [expenses]);
+
+  // Chart: get max total for scaling bar heights
+  const maxTotal = useMemo(
+    () => (summary.length ? Math.max(...summary.map((s) => s.total)) : 0),
+    [summary]
+  );
 
   return (
     <main
@@ -262,7 +330,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* Layout: left = form, right = summary */}
+        {/* Layout: left = form, right = summary + chart */}
         <section
           style={{
             display: "grid",
@@ -271,7 +339,7 @@ export default function Home() {
             marginBottom: "1.5rem",
           }}
         >
-          {/* Add Expense Form */}
+          {/* Add / Edit Expense Form */}
           <div
             style={{
               background: "rgba(15, 23, 42, 0.9)",
@@ -281,11 +349,38 @@ export default function Home() {
               border: "1px solid rgba(148, 163, 184, 0.3)",
             }}
           >
-            <h2 style={{ fontSize: "1.2rem", margin: 0, marginBottom: "0.75rem" }}>
-              Add Expense
-            </h2>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "0.5rem",
+              }}
+            >
+              <h2 style={{ fontSize: "1.2rem", margin: 0 }}>
+                {editingId ? `Edit Expense #${editingId}` : "Add Expense"}
+              </h2>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  style={{
+                    fontSize: "0.8rem",
+                    padding: "0.3rem 0.75rem",
+                    borderRadius: 999,
+                    border: "1px solid rgba(248, 250, 252, 0.5)",
+                    background: "transparent",
+                    color: "#e5e7eb",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+
             <form
-              onSubmit={handleCreate}
+              onSubmit={handleCreateOrUpdate}
               style={{ display: "grid", gap: "0.6rem", fontSize: "0.9rem" }}
             >
               <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -361,12 +456,16 @@ export default function Home() {
                     : "0 10px 25px rgba(37,99,235,0.45)",
                 }}
               >
-                {loading ? "Saving..." : "Save Expense"}
+                {loading
+                  ? "Saving..."
+                  : editingId
+                  ? "Update Expense"
+                  : "Save Expense"}
               </button>
             </form>
           </div>
 
-          {/* Summary / Strategy View */}
+          {/* Summary + simple bar chart */}
           <div
             style={{
               background: "rgba(15, 23, 42, 0.9)",
@@ -424,35 +523,121 @@ export default function Home() {
                 No summary data yet. Add an expense to see it here.
               </p>
             ) : (
-              <ul
-                style={{
-                  listStyle: "none",
-                  paddingLeft: 0,
-                  margin: 0,
-                  display: "grid",
-                  gap: "0.4rem",
-                }}
-              >
-                {summary.map((s) => (
-                  <li
-                    key={s.key}
+              <>
+                {/* Text summary list */}
+                <ul
+                  style={{
+                    listStyle: "none",
+                    paddingLeft: 0,
+                    margin: 0,
+                    display: "grid",
+                    gap: "0.4rem",
+                    marginBottom: "0.75rem",
+                  }}
+                >
+                  {summary.map((s) => (
+                    <li
+                      key={s.key}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        fontSize: "0.9rem",
+                        padding: "0.35rem 0.6rem",
+                        borderRadius: 999,
+                        background: "rgba(15,23,42,0.8)",
+                        border: "1px solid rgba(148, 163, 184, 0.5)",
+                      }}
+                    >
+                      <span>{s.key}</span>
+                      <span>
+                        {s.total.toFixed(2)} {baseCurrency}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* Simple bar chart */}
+                <div
+                  style={{
+                    marginTop: "0.5rem",
+                    borderTop: "1px solid rgba(51,65,85,0.9)",
+                    paddingTop: "0.6rem",
+                  }}
+                >
+                  <p
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "0.9rem",
-                      padding: "0.4rem 0.5rem",
-                      borderRadius: 999,
-                      background: "rgba(15,23,42,0.8)",
-                      border: "1px solid rgba(148, 163, 184, 0.5)",
+                      margin: 0,
+                      marginBottom: "0.35rem",
+                      fontSize: "0.78rem",
+                      opacity: 0.75,
                     }}
                   >
-                    <span>{s.key}</span>
-                    <span>
-                      {s.total.toFixed(2)} {baseCurrency}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                    Visual breakdown ({groupBy}) – simple bar chart.
+                  </p>
+                  <div
+                    style={{
+                      height: 140,
+                      display: "flex",
+                      alignItems: "flex-end",
+                      gap: "0.5rem",
+                      fontSize: "0.75rem",
+                    }}
+                  >
+                    {summary.map((s) => {
+                      const pct =
+                        maxTotal > 0 ? (s.total / maxTotal) * 100 : 0;
+                      return (
+                        <div
+                          key={s.key}
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              display: "flex",
+                              alignItems: "flex-end",
+                              width: "100%",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: "70%",
+                                height: `${pct || 5}%`,
+                                borderRadius: 8,
+                                background:
+                                  "linear-gradient(180deg, #22c55e, #0ea5e9, #2563eb)",
+                                boxShadow:
+                                  "0 10px 20px rgba(37,99,235,0.45)",
+                                transition: "height 0.2s ease",
+                              }}
+                              title={`${s.key}: ${s.total.toFixed(
+                                2
+                              )} ${baseCurrency}`}
+                            />
+                          </div>
+                          <div
+                            style={{
+                              marginTop: "0.25rem",
+                              whiteSpace: "nowrap",
+                              textOverflow: "ellipsis",
+                              overflow: "hidden",
+                              maxWidth: "100%",
+                            }}
+                          >
+                            {s.key}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -494,7 +679,7 @@ export default function Home() {
                   opacity: 0.75,
                 }}
               >
-                Filter by category to see how spending changes.
+                Filter by category, edit inline, or delete entries.
               </p>
             </div>
             <div style={{ display: "flex", gap: "0.4rem", fontSize: "0.8rem" }}>
@@ -527,7 +712,7 @@ export default function Home() {
                   width: "100%",
                   borderCollapse: "collapse",
                   fontSize: "0.82rem",
-                  minWidth: 600,
+                  minWidth: 700,
                 }}
               >
                 <thead>
@@ -537,6 +722,7 @@ export default function Home() {
                     <Th>Amount</Th>
                     <Th>Base Amount</Th>
                     <Th>Description</Th>
+                    <Th>Actions</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -569,6 +755,46 @@ export default function Home() {
                           {e.description ?? "—"}
                         </span>
                       </Td>
+                      <Td>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "0.4rem",
+                            flexWrap: "nowrap",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleStartEdit(e)}
+                            style={{
+                              fontSize: "0.75rem",
+                              padding: "0.25rem 0.6rem",
+                              borderRadius: 999,
+                              border: "1px solid rgba(59, 130, 246, 0.9)",
+                              background: "rgba(59,130,246,0.15)",
+                              color: "#bfdbfe",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(e.id)}
+                            style={{
+                              fontSize: "0.75rem",
+                              padding: "0.25rem 0.6rem",
+                              borderRadius: 999,
+                              border: "1px solid rgba(248, 113, 113, 0.9)",
+                              background: "rgba(248,113,113,0.13)",
+                              color: "#fecaca",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
@@ -576,6 +802,7 @@ export default function Home() {
             </div>
           )}
         </section>
+        
       </div>
     </main>
   );

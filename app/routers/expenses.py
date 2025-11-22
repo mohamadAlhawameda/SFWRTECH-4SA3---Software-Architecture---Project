@@ -69,6 +69,48 @@ def list_expenses(
     return query.all()
 
 
+@router.put("/{expense_id}", response_model=ExpenseOut)
+def update_expense(
+    expense_id: int,
+    payload: ExpenseCreate,
+    db: Session = Depends(get_db),
+    convert_to_base: bool = Query(
+        default=True,
+        description="If true, re-convert to BASE_CURRENCY using FX API.",
+    ),
+):
+    """
+    Update an existing expense.
+
+    Reuses the same FX conversion logic as create_expense.
+    """
+    exp = db.query(Expense).filter(Expense.id == expense_id).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    currency = payload.currency.upper()
+    amount = payload.amount
+
+    if convert_to_base:
+        client = get_currency_client()
+        rate = client.get_rate(currency, BASE_CURRENCY)
+        amount_base = (amount * Decimal(str(rate))).quantize(Decimal("0.01"))
+    else:
+        amount_base = amount
+
+    exp.amount = amount
+    exp.currency = currency
+    exp.amount_base = amount_base
+    exp.base_currency = BASE_CURRENCY
+    exp.category = payload.category
+    exp.description = payload.description
+    exp.spent_at = payload.spent_at or date.today()
+
+    db.commit()
+    db.refresh(exp)
+    return exp
+
+
 # ⚠️ IMPORTANT: define /summary BEFORE /{expense_id} so "summary" is not treated as an ID.
 @router.get("/summary", response_model=list[SummaryOut])
 def summary(

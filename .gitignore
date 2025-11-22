@@ -1,3 +1,61 @@
+# --------------------
+# Python
+# --------------------
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Python logs
+*.log
+
+# --------------------
+# Environment variables
+# --------------------
 .env
+.env.*
+!.env.example
 
+# --------------------
+# IDE / Editor
+# --------------------
+.vscode/
+.idea/
+*.swp
 
+# --------------------
+# FastAPI / Uvicorn
+# --------------------
+*.db
+
+# --------------------
+# Node / Next.js (UI)
+# --------------------
+ui/node_modules/
+ui/.next/
+ui/.turbo/
+ui/out/
+ui/package-lock.json
+
+# Logs
+ui/npm-debug.log*
+ui/yarn-debug.log*
+ui/yarn-error.log*
+
+# --------------------
+# OS / System
+# --------------------
+.DS_Store
+Thumbs.db
+
+# --------------------
+# Git
+# --------------------
+# Nothing here — the `.git` folder **MUST** be included in your submission ZIP.
