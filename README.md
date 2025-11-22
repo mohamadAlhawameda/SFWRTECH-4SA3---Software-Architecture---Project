@@ -1,4 +1,5 @@
 # ExpenseTracker Lite
+<img width="1717" height="964" alt="Screenshot 2025-11-22 at 2 08 15 PM" src="https://github.com/user-attachments/assets/b35146d9-42c8-4104-b7de-3ed18673f02e" />
 
 This project is my term project for **SFWRTECH 4SA3 – Software Architecture**.
 
